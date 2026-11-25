@@ -1,121 +1,48 @@
-
 import { NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
+import { authorizeMenuWrite, duplicateDish, menuError, readDish, validDishId } from "@/lib/menu-write";
 
-type Context = {
-  params: Promise<{ id: string }>;
-};
+type Context = { params: Promise<{ id: string }> };
 
-export async function PATCH(
-  request: Request,
-  context: Context
-) {
+export async function PATCH(request: Request, { params }: Context) {
   try {
-    const { id } = await context.params;
-
-    if (!/^\d+$/.test(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid item ID." },
-        { status: 400 }
-      );
-    }
-
-    const body = await request.json();
-
-    const name = String(body.name ?? "").trim();
-    const description = String(body.description ?? "").trim();
-    const rawPrice = body.price;
-    const price = Number(rawPrice);
-
-    if (
-      !name ||
-      name.length > 150 ||
-      !description ||
-      rawPrice === "" ||
-      rawPrice === null ||
-      rawPrice === undefined ||
-      !Number.isFinite(price) ||
-      price < 0 ||
-      price > 99999999.99
-    ) {
-      return NextResponse.json(
-        { success: false, error: "Please enter valid details." },
-        { status: 400 }
-      );
-    }
-
+    const denied = await authorizeMenuWrite(request);
+    if (denied) return denied;
+    const { id } = await params;
+    if (!validDishId(id)) return menuError("Invalid item ID.", 400);
+    const dish = await readDish(request);
+    if (!dish) return menuError("Enter a dish name, description, and valid price with up to two decimal places.", 400);
+    const { name, price, description } = dish;
     const sql = getDatabase();
-
-    const result = await sql`
-      UPDATE menu_items
-      SET
-        name = ${name},
-        price = ${price},
-        description = ${description}
-      WHERE id = ${id}
-      RETURNING id, name, price, description
+    const [existing] = await sql`
+      SELECT id FROM menu_items WHERE id <> ${id} AND lower(btrim(name)) = lower(btrim(${name}))
     `;
-
-    if (result.length === 0) {
-      return NextResponse.json(
-        { success: false, error: "Item not found." },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      item: result[0],
-    });
+    if (existing) return menuError("A dish with that name already exists.", 409);
+    const [item] = await sql`
+      UPDATE menu_items SET name = ${name}, price = ${price}, description = ${description}
+      WHERE id = ${id} RETURNING id, name, price, description
+    `;
+    if (!item) return menuError("Item not found.", 404);
+    return NextResponse.json({ success: true, item });
   } catch (error) {
+    if (duplicateDish(error)) return menuError("A dish with that name already exists.", 409);
     console.error("PATCH menu error:", error);
-
-    return NextResponse.json(
-      { success: false, error: "Failed to update item." },
-      { status: 500 }
-    );
+    return menuError("Failed to update item.", 500);
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  context: Context
-) {
+export async function DELETE(request: Request, { params }: Context) {
   try {
-    const { id } = await context.params;
-
-    if (!/^\d+$/.test(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid item ID." },
-        { status: 400 }
-      );
-    }
-
+    const denied = await authorizeMenuWrite(request);
+    if (denied) return denied;
+    const { id } = await params;
+    if (!validDishId(id)) return menuError("Invalid item ID.", 400);
     const sql = getDatabase();
-
-    const deleted = await sql`
-      DELETE FROM menu_items
-      WHERE id = ${id}
-      RETURNING id
-    `;
-
-    if (deleted.length === 0) {
-      return NextResponse.json(
-        { success: false, error: "Item not found." },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: "Menu item deleted successfully.",
-    });
+    const [deleted] = await sql`DELETE FROM menu_items WHERE id = ${id} RETURNING id`;
+    if (!deleted) return menuError("Item not found.", 404);
+    return NextResponse.json({ success: true, message: "Menu item deleted successfully." });
   } catch (error) {
     console.error("DELETE menu error:", error);
-
-    return NextResponse.json(
-      { success: false, error: "Failed to delete item." },
-      { status: 500 }
-    );
+    return menuError("Failed to delete menu item.", 500);
   }
 }

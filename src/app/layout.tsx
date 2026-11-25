@@ -1,5 +1,4 @@
 
-import type { Metadata } from "next";
 import { DM_Sans, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
@@ -14,12 +13,6 @@ const playfair = Playfair_Display({
   variable: "--font-playfair",
   display: "swap",
 });
-
-export const metadata: Metadata = {
-  title: "Saffron & Stone | The Dining House",
-  description:
-    "Discover the menu at Saffron & Stone. Fresh ingredients, thoughtful flavours, and memorable dining.",
-};
 
 export default function RootLayout({
   children,
